@@ -1,0 +1,116 @@
+{
+  "title": "Autenticação JWT",
+  "nodes": [
+    {
+      "id": "1",
+      "label": "O que faz",
+      "level": 1,
+      "content": "Autentica usuários com JWT: no login gera um par de tokens (access + refresh), valida o access token em rotas protegidas e permite renovar a sessão via refresh token sem novo login. Logout revoga o refresh token.",
+      "status": "unread",
+      "children": [
+        {
+          "id": "2a",
+          "label": "Criptografia e Tokens",
+          "level": 2,
+          "content": "Responsável por toda operação criptográfica: hash de senhas, criação de JWTs com expiração e decodificação/validação de tokens. Arquivos: `auth_jwt/security.py` e `auth_jwt/config.py`.",
+          "status": "unread",
+          "children": [
+            {
+              "id": "3a",
+              "label": "security.py",
+              "level": 3,
+              "content": "Funções exportadas:\n- `hash_password(plain)` — gera bcrypt hash da senha\n- `verify_password(plain, hashed)` — compara senha com hash\n- `create_token(data, expires_delta)` — assina um JWT com exp\n- `decode_token(token)` — valida JWT e retorna TokenData; lança 401 se expirado ou inválido",
+              "status": "unread",
+              "children": [
+                {
+                  "id": "4a",
+                  "label": "decode_token — detalhe",
+                  "level": 4,
+                  "content": "1. Tenta decodificar o token com `jwt.decode` usando SECRET_KEY e ALGORITHM\n2. Extrai `sub` (email) e `type` (access|refresh) do payload\n3. Se `sub` ou `type` estiverem ausentes → lança 401 `token_invalid`\n4. Se `jwt.ExpiredSignatureError` → lança 401 `token_expired`\n5. Qualquer outro `jwt.InvalidTokenError` → lança 401 `token_invalid`\n6. Em caso de sucesso retorna `TokenData(sub=..., type=...)`",
+                  "status": "unread",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "3b",
+              "label": "config.py",
+              "level": 3,
+              "content": "Classe `Settings` (dataclass) com:\n- `SECRET_KEY` — chave de assinatura dos tokens\n- `ALGORITHM = 'HS256'`\n- `ACCESS_TOKEN_EXPIRE_MINUTES = 15`\n- `REFRESH_TOKEN_EXPIRE_DAYS = 7`\nInstância global `settings` usada por toda a aplicação.",
+              "status": "unread",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "2b",
+          "label": "Modelos de Dados",
+          "level": 2,
+          "content": "Define os contratos de dados usando Pydantic. Arquivo: `auth_jwt/models.py`.",
+          "status": "unread",
+          "children": [
+            {
+              "id": "3c",
+              "label": "models.py",
+              "level": 3,
+              "content": "Modelos Pydantic:\n- `User` — representa o usuário: `id`, `email`, `hashed_password`\n- `LoginRequest` — corpo do POST /login: `email`, `password`\n- `TokenPair` — resposta do login/refresh: `access_token`, `refresh_token`, `token_type`\n- `TokenData` — payload decodificado do JWT: `sub` (email), `type` (access|refresh)",
+              "status": "unread",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "2c",
+          "label": "Armazenamento",
+          "level": 2,
+          "content": "Mantém os dados em memória (para desenvolvimento/demo). Em produção seria substituído por banco de dados. Arquivo: `auth_jwt/store.py`.",
+          "status": "unread",
+          "children": [
+            {
+              "id": "3d",
+              "label": "store.py",
+              "level": 3,
+              "content": "Estado global:\n- `users: dict[str, User]` — dicionário de usuários indexado por email; pré-populado com `user@example.com / secret`\n- `refresh_tokens: set[str]` — conjunto de refresh tokens ativos\n\nFunções:\n- `get_user_by_email(email)` — busca usuário pelo email\n- `add_refresh_token(token)` — ativa um refresh token\n- `revoke_refresh_token(token)` — remove (revoga) um refresh token\n- `is_refresh_token_valid(token)` — verifica se o token está no conjunto ativo",
+              "status": "unread",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "2d",
+          "label": "API HTTP",
+          "level": 2,
+          "content": "Expõe os endpoints e a dependência de autenticação para uso em outras rotas. Arquivos: `auth_jwt/router.py` e `auth_jwt/dependencies.py`.",
+          "status": "unread",
+          "children": [
+            {
+              "id": "3e",
+              "label": "router.py",
+              "level": 3,
+              "content": "Endpoints sob o prefixo `/auth`:\n- `POST /auth/login` — recebe `LoginRequest`, valida credenciais, retorna `TokenPair`\n- `POST /auth/refresh` — recebe `refresh_token`, valida no store, revoga o antigo e emite novo `TokenPair`\n- `POST /auth/logout` — requer access token válido (via `get_current_user`), revoga o refresh token\n\nHelper interno `_build_token_pair(email)` — cria access + refresh token e registra o refresh no store.",
+              "status": "unread",
+              "children": [
+                {
+                  "id": "4b",
+                  "label": "POST /auth/refresh — detalhe",
+                  "level": 4,
+                  "content": "1. Verifica se o `refresh_token` existe no store (`is_refresh_token_valid`) → 401 se não existir\n2. Decodifica o token com `decode_token` → 401 se expirado ou inválido\n3. Confirma que `token_data.type == 'refresh'` → 401 se for outro tipo\n4. Revoga o token atual com `revoke_refresh_token` (rotação de token — evita reutilização)\n5. Chama `_build_token_pair` para emitir novos access + refresh tokens\n6. Retorna o novo `TokenPair`",
+                  "status": "unread",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "3f",
+              "label": "dependencies.py",
+              "level": 3,
+              "content": "Dependência FastAPI `get_current_user`:\n- Extrai o Bearer token do header `Authorization` via `OAuth2PasswordBearer`\n- Decodifica com `decode_token` — lança 401 automaticamente se inválido/expirado\n- Verifica que `type == 'access'` (rejeita refresh tokens usados como access)\n- Busca o usuário no store pelo `sub`\n- Retorna o `User` — usado com `Depends(get_current_user)` em qualquer rota protegida",
+              "status": "unread",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
